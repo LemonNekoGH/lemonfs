@@ -3,7 +3,7 @@
 {
 	"name": "LemonFS",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/go:1-1.23-bookworm",
+	"image": "golang:1.23-bookworm",
 	"runArgs": [
 		"--privileged"
 	],
