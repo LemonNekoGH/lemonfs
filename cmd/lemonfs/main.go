@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"os/signal"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -13,23 +15,41 @@ type myNode struct {
 	fs.Inode
 }
 
-// Node types must be InodeEmbedders
-var _ = (fs.InodeEmbedder)((*myNode)(nil))
+// type check
+var _ = (fs.NodeOnAdder)((*myNode)(nil))
 
-// Node types should implement some file system operations, eg. Lookup
+// This will be called when the file system is mounted
+func (n *myNode) OnAdd(ctx context.Context) {
+	log.Println("OnAdd")
+}
+
+// type check
+var _ = (fs.NodeOnForgetter)((*myNode)(nil))
+
+func (n *myNode) OnForget() {
+	log.Println("OnForget")
+}
+
+// type check
 var _ = (fs.NodeLookuper)((*myNode)(nil))
 
 func (n *myNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	ops := myNode{}
-	out.Mode = 0755
-	out.Size = 42
-	return n.NewInode(ctx, &ops, fs.StableAttr{Mode: syscall.S_IFREG}), 0
+	log.Println("Lookup", name)
+	return nil, syscall.ENOENT
 }
 
 func main() {
-	server, err := fs.Mount("/tmp/lemonfs", &myNode{}, &fs.Options{})
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer cancel()
+
+	server, err := fs.Mount("/tmp/lemonfs", &myNode{}, &fs.Options{}) // It will call OnAdd
 	if err != nil {
 		log.Fatal(err)
 	}
-	server.Wait()
+
+	<-ctx.Done()
+	err = server.Unmount()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
