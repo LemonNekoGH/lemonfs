@@ -15,20 +15,32 @@ import (
 const jsonContent = `{
 	"type": "directory",
 	"name": "root",
+	"last_accessed_at": 1734525498,
+	"last_modified_at": 1734525498,
+	"created_at": 1734525498,
 	"content": [
 		{
 			"type": "file",
 			"name": "a_file.txt",
-			"content": "Hello, World!"
+			"content": "Hello, World!",
+			"last_accessed_at": 1734525498,
+			"last_modified_at": 1734525498,
+			"created_at": 1734524498
 		},
 		{
 			"type": "directory",
 			"name": "a_directory",
+			"last_accessed_at": 1734525498,
+			"last_modified_at": 1734525498,
+			"created_at": 1734523498,
 			"content": [
 				{
 					"type": "file",
 					"name": "another_file.txt",
-					"content": "Hello, another world!"
+					"content": "Hello, another world!",
+					"last_accessed_at": 1734525498,
+					"last_modified_at": 1734525498,
+					"created_at": 1734525498
 				}
 			]
 		}
