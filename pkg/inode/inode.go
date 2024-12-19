@@ -65,7 +65,7 @@ type LemonDirectory struct {
 type LemonInode struct {
 	fs.Inode
 
-	mu sync.Mutex
+	rwLock sync.RWMutex
 
 	Content *LemonDirectoryChild
 }
@@ -75,14 +75,30 @@ var _ fs.NodeOnAdder = (*LemonInode)(nil)
 var _ fs.NodeReaddirer = (*LemonInode)(nil)
 var _ fs.NodeLookuper = (*LemonInode)(nil)
 var _ fs.NodeGetattrer = (*LemonInode)(nil)
+var _ fs.NodeOpener = (*LemonInode)(nil)
+var _ fs.NodeReader = (*LemonInode)(nil)
 
 func (i *LemonInode) OnAdd(ctx context.Context) {
-	log.Println("Filesystem is mounted")
+	log.Println("OnAdd", i.name())
+}
+
+func (i *LemonInode) name() string {
+	if i.Content.Type == "file" {
+		return i.Content.File.Name
+	}
+
+	if i.Content.Type == "directory" {
+		return i.Content.Directory.Name
+	}
+
+	return ""
 }
 
 func (i *LemonInode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	i.rwLock.RLock()
+	defer i.rwLock.RUnlock()
+
+	log.Println("Readdir", i.name())
 
 	if i.Content.Type == "file" {
 		return nil, syscall.ENOENT
@@ -104,10 +120,10 @@ func (i *LemonInode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) 
 }
 
 func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	i.rwLock.RLock()
+	defer i.rwLock.RUnlock()
 
-	log.Println("Lookup", name, i.Content.Type)
+	log.Printf("Lookup %s in %s", name, i.name())
 
 	found, ok := lo.Find(i.Content.Directory.Content, func(child LemonDirectoryChild) bool {
 		if child.File != nil && child.File.Name == name {
@@ -137,10 +153,10 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 }
 
 func (i *LemonInode) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	i.rwLock.RLock()
+	defer i.rwLock.RUnlock()
 
-	log.Println("Getattr", i.Content.Type)
+	log.Println("Getattr", i.name())
 
 	if i.Content.Type == "file" {
 		out.Size = uint64(len(i.Content.File.Content))
@@ -158,4 +174,32 @@ func (i *LemonInode) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.Att
 	}
 
 	return 0
+}
+
+func (i *LemonInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
+	i.rwLock.RLock()
+	defer i.rwLock.RUnlock()
+
+	log.Println("Open", i.name())
+	return i, 0, 0
+}
+
+func (i *LemonInode) Read(ctx context.Context, f fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+	i.rwLock.RLock()
+	defer i.rwLock.RUnlock()
+
+	if i.Content.Type != "file" {
+		return nil, syscall.ENOTSUP
+	}
+
+	log.Printf("Read %s at %d, %d bytes, %d bytes available", i.name(), off, len(dest), len(i.Content.File.Content))
+
+	endIndex := off + int64(len(dest))
+	if endIndex > int64(len(i.Content.File.Content)) {
+		endIndex = int64(len(i.Content.File.Content))
+	}
+
+	readBytes := i.Content.File.Content[off:endIndex]
+
+	return fuse.ReadResultData([]byte(readBytes)), 0
 }

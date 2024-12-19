@@ -2,8 +2,6 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/go
 {
 	"name": "LemonFS",
-	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "golang:1.23-bookworm",
 	"runArgs": [
 		"--privileged"
 	],
@@ -14,12 +12,19 @@
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 
-	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "apt update && apt install -y fuse",
-
-	// Configure tool-specific properties.
-	// "customizations": {},
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
 
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
-	"remoteUser": "root"
+	"remoteUser": "root",
+
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go"
+			]
+		}
+	}
 }

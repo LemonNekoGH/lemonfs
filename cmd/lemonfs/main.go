@@ -22,7 +22,7 @@ const jsonContent = `{
 		{
 			"type": "file",
 			"name": "a_file.txt",
-			"content": "Hello, World!",
+			"content": "Hello, World!\n",
 			"last_accessed_at": 1734525498,
 			"last_modified_at": 1734525498,
 			"created_at": 1734524498
@@ -37,7 +37,7 @@ const jsonContent = `{
 				{
 					"type": "file",
 					"name": "another_file.txt",
-					"content": "Hello, another world!",
+					"content": "Hello, another world!\n",
 					"last_accessed_at": 1734525498,
 					"last_modified_at": 1734525498,
 					"created_at": 1734525498
