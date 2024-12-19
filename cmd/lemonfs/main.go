@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -12,52 +13,38 @@ import (
 	"github.com/lemonnekogh/lemonfs/pkg/inode"
 )
 
-const jsonContent = `{
-	"type": "directory",
-	"name": "root",
-	"last_accessed_at": 1734525498,
-	"last_modified_at": 1734525498,
-	"created_at": 1734525498,
-	"content": [
-		{
-			"type": "file",
-			"name": "a_file.txt",
-			"content": "Hello, World!\n",
-			"last_accessed_at": 1734525498,
-			"last_modified_at": 1734525498,
-			"created_at": 1734524498
-		},
-		{
-			"type": "directory",
-			"name": "a_directory",
-			"last_accessed_at": 1734525498,
-			"last_modified_at": 1734525498,
-			"created_at": 1734523498,
-			"content": [
-				{
-					"type": "file",
-					"name": "another_file.txt",
-					"content": "Hello, another world!\n",
-					"last_accessed_at": 1734525498,
-					"last_modified_at": 1734525498,
-					"created_at": 1734525498
-				}
-			]
-		}
-	]
-}`
-
 func main() {
-	rootNode := &inode.LemonDirectoryChild{}
-	err := json.Unmarshal([]byte(jsonContent), rootNode)
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: lemonfs <json_file> <mount_point>")
+		os.Exit(1)
+	}
+
+	jsonFile := os.Args[1]
+	mountPoint := os.Args[2]
+
+	jsonContent, err := os.ReadFile(jsonFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	jsonRoot := &inode.LemonDirectory{}
+	err = json.Unmarshal(jsonContent, jsonRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	jsonRoot.Type = "directory"
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
 
-	server, err := fs.Mount("/tmp/lemonfs", &inode.LemonInode{Content: rootNode}, &fs.Options{}) // It will call OnAdd
+	rootInode := &inode.LemonInode{
+		Content: &inode.LemonDirectoryChild{
+			Directory: jsonRoot,
+		},
+		TargetFile: jsonFile,
+	}
+
+	server, err := fs.Mount(mountPoint, rootInode, &fs.Options{}) // It will call OnAdd
 	if err != nil {
 		log.Fatal(err)
 	}
