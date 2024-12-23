@@ -1,0 +1,123 @@
+package file
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+type LemonFile struct {
+	Type           string `json:"type"`
+	Name           string `json:"name"`
+	Content        string `json:"content"`
+	CreatedAt      int64  `json:"created_at"`
+	LastAccessedAt int64  `json:"last_accessed_at"`
+	LastModifiedAt int64  `json:"last_modified_at"`
+}
+
+type LemonDirectoryChild struct {
+	Type      string          `json:"type"`
+	File      *LemonFile      `json:"file"`
+	Directory *LemonDirectory `json:"directory"`
+
+	Parent     *LemonDirectoryChild
+	TargetFile string
+}
+
+func (c *LemonDirectoryChild) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	err := json.Unmarshal(data, &raw)
+	if err != nil {
+		return err
+	}
+
+	if raw["type"] == "file" {
+		f := &LemonFile{}
+		err = json.Unmarshal(data, f)
+		if err != nil {
+			return err
+		}
+		*c = LemonDirectoryChild{Type: "file", File: f}
+	} else if raw["type"] == "directory" {
+		d := &LemonDirectory{}
+		err = json.Unmarshal(data, d)
+		if err != nil {
+			return err
+		}
+		*c = LemonDirectoryChild{Type: "directory", Directory: d}
+	}
+
+	return nil
+}
+
+func (c *LemonDirectoryChild) MarshalJSON() ([]byte, error) {
+	if c.File != nil {
+		return json.Marshal(c.File)
+	}
+
+	if c.Directory != nil {
+		return json.Marshal(c.Directory)
+	}
+
+	return nil, nil
+}
+
+func (c *LemonDirectoryChild) WriteToFile() error {
+	jsonContent, err := json.Marshal(c.root())
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(c.TargetFile, jsonContent, 0644)
+}
+
+func (c *LemonDirectoryChild) root() *LemonDirectoryChild {
+	root := c
+	for root.Parent != nil {
+		root = root.Parent
+	}
+
+	return root
+}
+
+func (c *LemonDirectoryChild) name() string {
+	if c.Type == "file" {
+		return c.File.Name
+	}
+
+	if c.Type == "directory" {
+		return c.Directory.Name
+	}
+
+	return ""
+}
+
+func (c *LemonDirectoryChild) Path() string {
+	if c.Parent == nil {
+		return "/"
+	}
+
+	return filepath.Join(c.Parent.Path(), c.name())
+}
+
+func (c *LemonDirectoryChild) ApplyParentAndTarget(parent *LemonDirectoryChild) {
+	if parent != nil {
+		c.Parent = parent
+		c.TargetFile = parent.TargetFile
+	}
+
+	if c.Directory != nil {
+		for _, child := range c.Directory.Content {
+			child.ApplyParentAndTarget(c)
+		}
+	}
+}
+
+type LemonDirectory struct {
+	Type           string                `json:"type"`
+	Name           string                `json:"name"`
+	Content        []LemonDirectoryChild `json:"content"`
+	CreatedAt      int64                 `json:"created_at"`
+	LastAccessedAt int64                 `json:"last_accessed_at"`
+	LastModifiedAt int64                 `json:"last_modified_at"`
+}

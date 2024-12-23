@@ -2,9 +2,7 @@ package inode
 
 import (
 	"context"
-	"encoding/json"
 	"log"
-	"os"
 	"path/filepath"
 	"sync"
 	"syscall"
@@ -12,143 +10,49 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/lemonnekogh/lemonfs/pkg/file"
+	"github.com/lemonnekogh/lemonfs/pkg/filehandle"
 	"github.com/samber/lo"
 )
-
-type LemonFile struct {
-	Type           string `json:"type"`
-	Name           string `json:"name"`
-	Content        string `json:"content"`
-	CreatedAt      int64  `json:"created_at"`
-	LastAccessedAt int64  `json:"last_accessed_at"`
-	LastModifiedAt int64  `json:"last_modified_at"`
-}
-
-type LemonDirectoryChild struct {
-	Type      string          `json:"type"`
-	File      *LemonFile      `json:"file"`
-	Directory *LemonDirectory `json:"directory"`
-}
-
-func (c *LemonDirectoryChild) UnmarshalJSON(data []byte) error {
-	var raw map[string]any
-	err := json.Unmarshal(data, &raw)
-	if err != nil {
-		return err
-	}
-
-	if raw["type"] == "file" {
-		f := &LemonFile{}
-		err = json.Unmarshal(data, f)
-		if err != nil {
-			return err
-		}
-		*c = LemonDirectoryChild{Type: "file", File: f}
-	} else if raw["type"] == "directory" {
-		d := &LemonDirectory{}
-		err = json.Unmarshal(data, d)
-		if err != nil {
-			return err
-		}
-		*c = LemonDirectoryChild{Type: "directory", Directory: d}
-	}
-
-	return nil
-}
-
-func (c *LemonDirectoryChild) MarshalJSON() ([]byte, error) {
-	if c.File != nil {
-		return json.Marshal(c.File)
-	}
-
-	if c.Directory != nil {
-		return json.Marshal(c.Directory)
-	}
-
-	return nil, nil
-}
-
-type LemonDirectory struct {
-	Type           string                `json:"type"`
-	Name           string                `json:"name"`
-	Content        []LemonDirectoryChild `json:"content"`
-	CreatedAt      int64                 `json:"created_at"`
-	LastAccessedAt int64                 `json:"last_accessed_at"`
-	LastModifiedAt int64                 `json:"last_modified_at"`
-}
 
 type LemonInode struct {
 	fs.Inode
 
 	rwLock sync.RWMutex
 
-	Content *LemonDirectoryChild
-
-	Parent     *LemonInode
-	TargetFile string
-}
-
-func (i *LemonInode) root() *LemonInode {
-	root := i
-	for root.Parent != nil {
-		root = root.Parent
-	}
-
-	return root
-}
-
-func (i *LemonInode) name() string {
-	if i.Content.Type == "file" {
-		return i.Content.File.Name
-	}
-
-	if i.Content.Type == "directory" {
-		return i.Content.Directory.Name
-	}
-
-	return ""
+	Content *file.LemonDirectoryChild
 }
 
 func (i *LemonInode) Path() string {
-	if i.Parent == nil {
-		return "/"
-	}
-
-	return filepath.Join(i.Parent.Path(), i.name())
-}
-
-func (i *LemonInode) WriteToFile() error {
-	jsonContent, err := json.Marshal(i.root().Content)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(i.TargetFile, jsonContent, 0644)
+	return filepath.Join(i.Content.Path())
 }
 
 func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inode, fs.FileHandle) {
 	now := time.Now().Unix()
-	newFile := &LemonFile{
-		Type:           "file",
-		Name:           name,
-		Content:        "",
-		CreatedAt:      now,
-		LastAccessedAt: now,
-		LastModifiedAt: now,
+
+	newFile := file.LemonDirectoryChild{
+		Type: "file",
+		File: &file.LemonFile{
+			Type:           "file",
+			Name:           name,
+			Content:        "",
+			CreatedAt:      now,
+			LastAccessedAt: now,
+			LastModifiedAt: now,
+		},
+
+		Parent:     i.Content,
+		TargetFile: i.Content.TargetFile,
 	}
 
-	newFileChild := LemonDirectoryChild{Type: "file", File: newFile}
-
-	i.Content.Directory.Content = append(i.Content.Directory.Content, newFileChild)
-	i.WriteToFile()
+	i.Content.Directory.Content = append(i.Content.Directory.Content, newFile)
+	i.Content.WriteToFile()
 
 	lemonInode := &LemonInode{
-		Content:    &newFileChild,
-		Parent:     i,
-		TargetFile: i.TargetFile,
+		Content: &newFile,
 	}
 
-	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFREG}), NewLemonFileHandle(newFile, lemonInode)
+	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&newFile)
 }
 
 // type checks
@@ -194,7 +98,7 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 
 	log.Printf("Lookup %s in %s", name, i.Path())
 
-	found, ok := lo.Find(i.Content.Directory.Content, func(child LemonDirectoryChild) bool {
+	found, ok := lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
 		if child.File != nil && child.File.Name == name {
 			return true
 		}
@@ -211,9 +115,7 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 	}
 
 	foundInode := &LemonInode{
-		Content:    &found,
-		Parent:     i,
-		TargetFile: i.TargetFile,
+		Content: &found,
 	}
 
 	mode := uint32(lo.Ternary(found.Type == "file", fuse.S_IFREG, fuse.S_IFDIR))
@@ -252,7 +154,7 @@ func (i *LemonInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uin
 	log.Println("Open", i.Path())
 
 	if i.Content.File != nil {
-		return NewLemonFileHandle(i.Content.File, i), 0, 0
+		return filehandle.NewLemonFileHandle(i.Content), 0, 0
 	}
 
 	return i, 0, syscall.EISDIR
@@ -274,7 +176,7 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 	}
 
 	// check if the file already exists
-	if file, ok := lo.Find(i.Content.Directory.Content, func(child LemonDirectoryChild) bool {
+	if file, ok := lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
 		return child.File != nil && child.File.Name == name
 	}); ok {
 		// if must create a new file
@@ -288,74 +190,10 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 
 		// create or open an existing file
 		return i.NewInode(ctx, &LemonInode{
-			Content:    &file,
-			Parent:     i,
-			TargetFile: i.TargetFile,
-		}, fs.StableAttr{Mode: fuse.S_IFREG}), NewLemonFileHandle(file.File, i), 0, 0
+			Content: &file,
+		}, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&file), 0, 0
 	}
 
 	newFile, newFileHandle := i.createFileInode(ctx, name)
 	return newFile, newFileHandle, 0, 0
-}
-
-// TODO: extract to file_handle.go
-
-type LemonFileHandle struct {
-	file *LemonFile
-
-	rwLock sync.RWMutex
-
-	inode *LemonInode
-}
-
-func NewLemonFileHandle(file *LemonFile, inode *LemonInode) *LemonFileHandle {
-	return &LemonFileHandle{
-		file:  file,
-		inode: inode,
-	}
-}
-
-// type check
-var _ fs.FileReader = (*LemonFileHandle)(nil)
-var _ fs.FileWriter = (*LemonFileHandle)(nil)
-
-func (fh *LemonFileHandle) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
-	fh.rwLock.Lock()
-	defer fh.rwLock.Unlock()
-
-	log.Printf("Write %s at %d, %d bytes", fh.inode.Path(), off, len(data))
-
-	content := []byte(fh.file.Content)
-	// If the offset is greater than the current length, append the missing bytes
-	if off > int64(len(content)) {
-		content = append(content, make([]byte, off-int64(len(content)))...)
-	}
-
-	// Should overwrite the bytes after the offset
-	content = append(content[:off], data...)
-
-	fh.file.Content = string(content)
-
-	fh.inode.WriteToFile()
-
-	// Update the last modified time
-	fh.file.LastModifiedAt = time.Now().Unix()
-
-	return uint32(len(data)), 0
-}
-
-func (fh *LemonFileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
-	fh.rwLock.RLock()
-	defer fh.rwLock.RUnlock()
-
-	log.Printf("Read %s at %d, %d bytes, %d bytes available", fh.inode.Path(), off, len(dest), len(fh.file.Content))
-
-	endIndex := off + int64(len(dest))
-	if endIndex > int64(len(fh.file.Content)) {
-		endIndex = int64(len(fh.file.Content))
-	}
-
-	readBytes := fh.file.Content[off:endIndex]
-
-	return fuse.ReadResultData([]byte(readBytes)), 0
 }

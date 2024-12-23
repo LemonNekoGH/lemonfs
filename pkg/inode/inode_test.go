@@ -7,6 +7,7 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/lemonnekogh/lemonfs/pkg/file"
 	"github.com/lemonnekogh/lemonfs/pkg/inode"
 	"github.com/stretchr/testify/require"
 )
@@ -18,15 +19,15 @@ func TestMain(m *testing.M) {
 func TestLookup(t *testing.T) {
 	r := require.New(t)
 
-	fileA := &inode.LemonFile{
+	fileA := &file.LemonFile{
 		Type: "file",
 		Name: "a",
 	}
 
-	dirB := &inode.LemonDirectory{
+	dirB := &file.LemonDirectory{
 		Type: "directory",
 		Name: "b",
-		Content: []inode.LemonDirectoryChild{
+		Content: []file.LemonDirectoryChild{
 			{
 				Type: "file",
 				File: fileA,
@@ -35,12 +36,12 @@ func TestLookup(t *testing.T) {
 	}
 
 	root := &inode.LemonInode{
-		Content: &inode.LemonDirectoryChild{
+		Content: &file.LemonDirectoryChild{
 			Type: "directory",
-			Directory: &inode.LemonDirectory{
+			Directory: &file.LemonDirectory{
 				Name: "root",
 				Type: "directory",
-				Content: []inode.LemonDirectoryChild{
+				Content: []file.LemonDirectoryChild{
 					{
 						Type:      "directory",
 						Directory: dirB,

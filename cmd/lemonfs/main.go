@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
+	"github.com/lemonnekogh/lemonfs/pkg/file"
 	"github.com/lemonnekogh/lemonfs/pkg/inode"
 )
 
@@ -27,21 +28,26 @@ func main() {
 		log.Fatal(err)
 	}
 
-	jsonRoot := &inode.LemonDirectory{}
+	jsonRoot := &file.LemonDirectoryChild{}
 	err = json.Unmarshal(jsonContent, jsonRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
-	jsonRoot.Type = "directory"
+	jsonRoot.TargetFile = jsonFile
+	jsonRoot.ApplyParentAndTarget(nil)
+	if jsonRoot.Directory == nil {
+		jsonRoot.Directory = &file.LemonDirectory{
+			Type:    "directory",
+			Content: []file.LemonDirectoryChild{},
+		}
+		jsonRoot.WriteToFile()
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
 
 	rootInode := &inode.LemonInode{
-		Content: &inode.LemonDirectoryChild{
-			Directory: jsonRoot,
-		},
-		TargetFile: jsonFile,
+		Content: jsonRoot,
 	}
 
 	server, err := fs.Mount(mountPoint, rootInode, &fs.Options{}) // It will call OnAdd
