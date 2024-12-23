@@ -3,7 +3,6 @@ package inode
 import (
 	"context"
 	"log"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -21,10 +20,6 @@ type LemonInode struct {
 	rwLock sync.RWMutex
 
 	Content *file.LemonDirectoryChild
-}
-
-func (i *LemonInode) Path() string {
-	return filepath.Join(i.Content.Path())
 }
 
 func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inode, fs.FileHandle) {
@@ -62,16 +57,17 @@ var _ fs.NodeLookuper = (*LemonInode)(nil)
 var _ fs.NodeGetattrer = (*LemonInode)(nil)
 var _ fs.NodeOpener = (*LemonInode)(nil)
 var _ fs.NodeCreater = (*LemonInode)(nil)
+var _ fs.NodeSetattrer = (*LemonInode)(nil)
 
 func (i *LemonInode) OnAdd(ctx context.Context) {
-	log.Println("OnAdd", i.Path())
+	log.Println("OnAdd", i.Content.Path())
 }
 
 func (i *LemonInode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
 	i.rwLock.RLock()
 	defer i.rwLock.RUnlock()
 
-	log.Println("Readdir", i.Path())
+	log.Println("Readdir", i.Content.Path())
 
 	if i.Content.Type == "file" {
 		return nil, syscall.ENOENT
@@ -96,7 +92,7 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 	i.rwLock.RLock()
 	defer i.rwLock.RUnlock()
 
-	log.Printf("Lookup %s in %s", name, i.Path())
+	log.Printf("Lookup %s in %s", name, i.Content.Path())
 
 	found, ok := lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
 		if child.File != nil && child.File.Name == name {
@@ -127,7 +123,7 @@ func (i *LemonInode) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.Att
 	i.rwLock.RLock()
 	defer i.rwLock.RUnlock()
 
-	log.Println("Getattr", i.Path())
+	log.Println("Getattr", i.Content.Path())
 
 	if i.Content.Type == "file" {
 		out.Size = uint64(len(i.Content.File.Content))
@@ -151,20 +147,24 @@ func (i *LemonInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uin
 	i.rwLock.RLock()
 	defer i.rwLock.RUnlock()
 
-	log.Println("Open", i.Path())
+	log.Printf("Open %s, flags %d", i.Content.Path(), flags)
 
-	if i.Content.File != nil {
-		return filehandle.NewLemonFileHandle(i.Content), 0, 0
+	if i.Content.File == nil {
+		return i, 0, syscall.EISDIR
 	}
 
-	return i, 0, syscall.EISDIR
+	if flags&syscall.O_TRUNC != 0 {
+		i.Content.File.Content = ""
+	}
+
+	return i.Content, 0, 0
 }
 
 func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
 	i.rwLock.Lock()
 	defer i.rwLock.Unlock()
 
-	log.Printf("Create %s in %s, flags: %d, mode: %d", name, i.Path(), flags, mode)
+	log.Printf("Create %s in %s, flags: %d, mode: %d", name, i.Content.Path(), flags, mode)
 
 	if i.Content.Directory == nil {
 		return nil, nil, 0, syscall.ENOTDIR
@@ -196,4 +196,15 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 
 	newFile, newFileHandle := i.createFileInode(ctx, name)
 	return newFile, newFileHandle, 0, 0
+}
+
+func (i *LemonInode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+	i.rwLock.Lock()
+	defer i.rwLock.Unlock()
+
+	log.Printf("Set attr of %s", i.Content.Path())
+
+	// TODO: not implemented
+
+	return 0
 }

@@ -80,16 +80,15 @@ func (c *LemonDirectoryChild) root() *LemonDirectoryChild {
 	return root
 }
 
-func (c *LemonDirectoryChild) name() string {
-	if c.Type == "file" {
+func (c *LemonDirectoryChild) Name() string {
+	switch c.Type {
+	case "file":
 		return c.File.Name
-	}
-
-	if c.Type == "directory" {
+	case "directory":
 		return c.Directory.Name
+	default:
+		return ""
 	}
-
-	return ""
 }
 
 func (c *LemonDirectoryChild) Path() string {
@@ -97,7 +96,7 @@ func (c *LemonDirectoryChild) Path() string {
 		return "/"
 	}
 
-	return filepath.Join(c.Parent.Path(), c.name())
+	return filepath.Join(c.Parent.Path(), c.Name())
 }
 
 func (c *LemonDirectoryChild) ApplyParentAndTarget(parent *LemonDirectoryChild) {
@@ -107,8 +106,8 @@ func (c *LemonDirectoryChild) ApplyParentAndTarget(parent *LemonDirectoryChild) 
 	}
 
 	if c.Directory != nil {
-		for _, child := range c.Directory.Content {
-			child.ApplyParentAndTarget(c)
+		for i := range c.Directory.Content {
+			c.Directory.Content[i].ApplyParentAndTarget(c)
 		}
 	}
 }
