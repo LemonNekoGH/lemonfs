@@ -35,8 +35,8 @@ go run ./cmd/lemonfs/main.go
 - [ ] File operations
     - [x] Open
     - [x] Read
-    - [ ] Write
-    - [ ] Truncate
+    - [x] Write
+    - [x] Rename
 - [ ] Directory operations
 - [ ] Symlink operations
 - [ ] Hardlink operations

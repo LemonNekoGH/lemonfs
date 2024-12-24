@@ -75,3 +75,66 @@ func TestLookup(t *testing.T) {
 	r.Error(err)
 	r.Equal(os.IsNotExist(err), true)
 }
+
+func TestRename(t *testing.T) {
+	r := require.New(t)
+
+	fileA := &file.LemonFile{
+		Type: "file",
+		Name: "a",
+	}
+
+	dirB := &file.LemonDirectory{
+		Type: "directory",
+		Name: "b",
+		Content: []file.LemonDirectoryChild{
+			{
+				Type: "file",
+				File: fileA,
+			},
+		},
+	}
+
+	dirC := &file.LemonDirectory{
+		Type:    "directory",
+		Name:    "c",
+		Content: []file.LemonDirectoryChild{},
+	}
+
+	root := &inode.LemonInode{
+		Content: &file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{
+						Type:      "directory",
+						Directory: dirB,
+					},
+					{
+						Type:      "directory",
+						Directory: dirC,
+					},
+				},
+			},
+		},
+	}
+
+	tmpDir := t.TempDir()
+	server, err := fs.Mount(tmpDir, root, &fs.Options{
+		MountOptions: fuse.MountOptions{
+			Debug: true,
+		},
+	})
+	r.NoError(err)
+	defer server.Unmount()
+
+	// rename file
+	err = os.Rename(filepath.Join(tmpDir, "b", "a"), filepath.Join(tmpDir, "b", "d"))
+	r.NoError(err)
+	r.Equal(fileA.Name, "d")
+
+	_, err = os.Stat(filepath.Join(tmpDir, "b", "d"))
+	r.NoError(err)
+}

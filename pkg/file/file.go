@@ -10,9 +10,9 @@ type LemonFile struct {
 	Type           string `json:"type"`
 	Name           string `json:"name"`
 	Content        string `json:"content"`
-	CreatedAt      int64  `json:"created_at"`
-	LastAccessedAt int64  `json:"last_accessed_at"`
-	LastModifiedAt int64  `json:"last_modified_at"`
+	CreatedAt      uint64 `json:"created_at"`
+	LastAccessedAt uint64 `json:"last_accessed_at"`
+	LastModifiedAt uint64 `json:"last_modified_at"`
 }
 
 type LemonDirectoryChild struct {
@@ -22,6 +22,23 @@ type LemonDirectoryChild struct {
 
 	Parent     *LemonDirectoryChild
 	TargetFile string
+}
+
+func (c *LemonDirectoryChild) IsFile() bool {
+	return c.File != nil && c.Directory == nil
+}
+
+func (c *LemonDirectoryChild) IsDirectory() bool {
+	return c.File == nil && c.Directory != nil
+}
+
+func (c *LemonDirectoryChild) Rename(newName string) {
+	if c.IsFile() {
+		c.File.Name = newName
+		return
+	}
+
+	c.Directory.Name = newName
 }
 
 func (c *LemonDirectoryChild) UnmarshalJSON(data []byte) error {

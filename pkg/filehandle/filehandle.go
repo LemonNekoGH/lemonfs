@@ -5,7 +5,6 @@ import (
 	"log"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -27,6 +26,7 @@ func NewLemonFileHandle(file *file.LemonDirectoryChild) *LemonFileHandle {
 // type check
 var _ fs.FileReader = (*LemonFileHandle)(nil)
 var _ fs.FileWriter = (*LemonFileHandle)(nil)
+var _ fs.FileSetattrer = (*LemonFileHandle)(nil)
 
 func (fh *LemonFileHandle) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
 	fh.rwLock.Lock()
@@ -47,9 +47,6 @@ func (fh *LemonFileHandle) Write(ctx context.Context, data []byte, off int64) (u
 
 	fh.file.WriteToFile()
 
-	// Update the last modified time
-	fh.file.File.LastModifiedAt = time.Now().Unix()
-
 	return uint32(len(data)), 0
 }
 
@@ -67,4 +64,19 @@ func (fh *LemonFileHandle) Read(ctx context.Context, dest []byte, off int64) (fu
 	readBytes := fh.file.File.Content[off:endIndex]
 
 	return fuse.ReadResultData([]byte(readBytes)), 0
+}
+
+func (fh *LemonFileHandle) Setattr(ctx context.Context, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+	fh.rwLock.Lock()
+	defer fh.rwLock.Unlock()
+
+	log.Printf("Set attr of %s\n", fh.file.Path())
+
+	fh.file.File.CreatedAt = in.Ctime
+	fh.file.File.LastModifiedAt = in.Mtime
+	fh.file.File.LastAccessedAt = in.Atime
+
+	fh.file.WriteToFile()
+
+	return 0
 }

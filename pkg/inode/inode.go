@@ -23,7 +23,7 @@ type LemonInode struct {
 }
 
 func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inode, fs.FileHandle) {
-	now := time.Now().Unix()
+	now := uint64(time.Now().Unix())
 
 	newFile := file.LemonDirectoryChild{
 		Type: "file",
@@ -58,9 +58,24 @@ var _ fs.NodeGetattrer = (*LemonInode)(nil)
 var _ fs.NodeOpener = (*LemonInode)(nil)
 var _ fs.NodeCreater = (*LemonInode)(nil)
 var _ fs.NodeSetattrer = (*LemonInode)(nil)
+var _ fs.NodeRenamer = (*LemonInode)(nil)
 
 func (i *LemonInode) OnAdd(ctx context.Context) {
 	log.Println("OnAdd", i.Content.Path())
+}
+
+func (i *LemonInode) findChild(name string) (file.LemonDirectoryChild, bool) {
+	return lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
+		if child.File != nil && child.File.Name == name {
+			return true
+		}
+
+		if child.Directory != nil && child.Directory.Name == name {
+			return true
+		}
+
+		return false
+	})
 }
 
 func (i *LemonInode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
@@ -94,17 +109,7 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 
 	log.Printf("Lookup %s in %s", name, i.Content.Path())
 
-	found, ok := lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
-		if child.File != nil && child.File.Name == name {
-			return true
-		}
-
-		if child.Directory != nil && child.Directory.Name == name {
-			return true
-		}
-
-		return false
-	})
+	found, ok := i.findChild(name)
 
 	if !ok {
 		return nil, syscall.ENOENT
@@ -157,7 +162,7 @@ func (i *LemonInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uin
 		i.Content.File.Content = ""
 	}
 
-	return i.Content, 0, 0
+	return filehandle.NewLemonFileHandle(i.Content), 0, 0
 }
 
 func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
@@ -176,9 +181,8 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 	}
 
 	// check if the file already exists
-	if file, ok := lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
-		return child.File != nil && child.File.Name == name
-	}); ok {
+	file, ok := i.findChild(name)
+	if ok {
 		// if must create a new file
 		if flags&(syscall.O_CREAT|syscall.O_EXCL) == 0 {
 			return nil, nil, 0, syscall.EEXIST
@@ -204,7 +208,78 @@ func (i *LemonInode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.Set
 
 	log.Printf("Set attr of %s", i.Content.Path())
 
-	// TODO: not implemented
+	return 0
+}
+
+func (i *LemonInode) Rename(ctx context.Context, name string, newParent fs.InodeEmbedder, newName string, flags uint32) syscall.Errno {
+	i.rwLock.Lock()
+	defer i.rwLock.Unlock()
+	defer i.Content.WriteToFile()
+
+	if i.Content.Directory == nil {
+		return syscall.ENOTDIR
+	}
+
+	newChildren := []file.LemonDirectoryChild{}
+	ok := false
+	var source *file.LemonDirectoryChild
+	for _, f := range i.Content.Directory.Content {
+		if f.Name() == name {
+			source = &f
+			ok = true
+			continue
+		}
+
+		newChildren = append(newChildren, f)
+	}
+
+	if !ok {
+		return syscall.ENOENT
+	}
+
+	targetParent, ok := newParent.(*LemonInode)
+	if !ok {
+		return syscall.ENOTSUP
+	}
+
+	log.Printf("rename %s in %s to %s in %s", name, i.Content.Path(), newName, targetParent.Content.Path())
+
+	// no need to move
+	if targetParent.Content.Path() == i.Content.Path() && name == newName {
+		return 0
+	}
+
+	existsTarget, ok := targetParent.findChild(newName)
+	if !ok {
+		// move directly
+		source.Rename(newName)
+		targetParent.Content.Directory.Content = []file.LemonDirectoryChild{*source}
+		i.Content.Directory.Content = newChildren
+		return 0
+	}
+
+	if source.IsFile() {
+		if targetParent.Content.IsDirectory() {
+			return syscall.EISDIR
+		}
+
+		// overwrite the file
+		existsTarget.File.Content = source.File.Content
+		return 0
+	}
+
+	if targetParent.Content.IsFile() {
+		return syscall.ENOTDIR
+	}
+
+	if len(targetParent.Content.Directory.Content) != 0 {
+		return syscall.ENOTEMPTY
+	}
+
+	// move
+	source.Rename(newName)
+	targetParent.Content.Directory.Content = []file.LemonDirectoryChild{*source}
+	i.Content.Directory.Content = newChildren
 
 	return 0
 }
