@@ -43,11 +43,19 @@ func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inod
 	i.Content.Directory.Content = append(i.Content.Directory.Content, newFile)
 	i.Content.WriteToFile()
 
-	lemonInode := &LemonInode{
-		Content: &newFile,
-	}
+	lemonInode := NewLemonInode(&newFile, i.Content)
 
 	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&newFile)
+}
+
+func NewLemonInode(content *file.LemonDirectoryChild, parent *file.LemonDirectoryChild) *LemonInode {
+	lemonInode := &LemonInode{
+		Content: content,
+	}
+
+	lemonInode.Content.ApplyParentAndTarget(parent)
+
+	return lemonInode
 }
 
 // type checks
@@ -66,11 +74,11 @@ func (i *LemonInode) OnAdd(ctx context.Context) {
 
 func (i *LemonInode) findChild(name string) (file.LemonDirectoryChild, bool) {
 	return lo.Find(i.Content.Directory.Content, func(child file.LemonDirectoryChild) bool {
-		if child.File != nil && child.File.Name == name {
+		if child.IsFile() && child.File.Name == name {
 			return true
 		}
 
-		if child.Directory != nil && child.Directory.Name == name {
+		if child.IsDirectory() && child.Directory.Name == name {
 			return true
 		}
 
@@ -84,17 +92,17 @@ func (i *LemonInode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) 
 
 	log.Println("Readdir", i.Content.Path())
 
-	if i.Content.Type == "file" {
+	if i.Content.IsFile() {
 		return nil, syscall.ENOENT
 	}
 
 	entries := []fuse.DirEntry{}
 	for _, child := range i.Content.Directory.Content {
-		if child.File != nil {
+		if child.IsFile() {
 			log.Println("Child", child.Type, child.File.Name)
 			entries = append(entries, fuse.DirEntry{Name: child.File.Name, Mode: fuse.S_IFREG})
 		}
-		if child.Directory != nil {
+		if child.IsDirectory() {
 			log.Println("Child", child.Type, child.Directory.Name)
 			entries = append(entries, fuse.DirEntry{Name: child.Directory.Name, Mode: fuse.S_IFDIR})
 		}
@@ -115,11 +123,11 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 		return nil, syscall.ENOENT
 	}
 
-	foundInode := &LemonInode{
-		Content: &found,
-	}
+	foundInode := NewLemonInode(&found, i.Content)
 
-	mode := uint32(lo.Ternary(found.Type == "file", fuse.S_IFREG, fuse.S_IFDIR))
+	log.Println("found", found.Path(), found.IsDirectory())
+
+	mode := uint32(lo.Ternary(found.IsFile(), fuse.S_IFREG, fuse.S_IFDIR))
 
 	return i.NewInode(ctx, foundInode, fs.StableAttr{Mode: mode}), 0
 }
@@ -130,7 +138,7 @@ func (i *LemonInode) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.Att
 
 	log.Println("Getattr", i.Content.Path())
 
-	if i.Content.Type == "file" {
+	if i.Content.IsFile() {
 		out.Size = uint64(len(i.Content.File.Content))
 		out.Atime = uint64(i.Content.File.LastAccessedAt)
 		out.Mtime = uint64(i.Content.File.LastModifiedAt)
@@ -138,7 +146,7 @@ func (i *LemonInode) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.Att
 		out.Mode = fuse.S_IFREG
 	}
 
-	if i.Content.Type == "directory" {
+	if i.Content.IsDirectory() {
 		out.Atime = uint64(i.Content.Directory.LastAccessedAt)
 		out.Mtime = uint64(i.Content.Directory.LastModifiedAt)
 		out.Ctime = uint64(i.Content.Directory.CreatedAt)
@@ -154,7 +162,7 @@ func (i *LemonInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uin
 
 	log.Printf("Open %s, flags %d", i.Content.Path(), flags)
 
-	if i.Content.File == nil {
+	if i.Content.IsDirectory() {
 		return i, 0, syscall.EISDIR
 	}
 
@@ -171,7 +179,7 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 
 	log.Printf("Create %s in %s, flags: %d, mode: %d", name, i.Content.Path(), flags, mode)
 
-	if i.Content.Directory == nil {
+	if i.Content.IsFile() {
 		return nil, nil, 0, syscall.ENOTDIR
 	}
 
@@ -193,9 +201,9 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 		}
 
 		// create or open an existing file
-		return i.NewInode(ctx, &LemonInode{
-			Content: &file,
-		}, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&file), 0, 0
+
+		foundInode := NewLemonInode(&file, i.Content)
+		return i.NewInode(ctx, foundInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&file), 0, 0
 	}
 
 	newFile, newFileHandle := i.createFileInode(ctx, name)
@@ -214,12 +222,12 @@ func (i *LemonInode) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.Set
 func (i *LemonInode) Rename(ctx context.Context, name string, newParent fs.InodeEmbedder, newName string, flags uint32) syscall.Errno {
 	i.rwLock.Lock()
 	defer i.rwLock.Unlock()
-	defer i.Content.WriteToFile()
 
-	if i.Content.Directory == nil {
+	if i.Content.IsFile() {
 		return syscall.ENOTDIR
 	}
 
+	// find and copy the children except the source
 	newChildren := []file.LemonDirectoryChild{}
 	ok := false
 	var source *file.LemonDirectoryChild
@@ -253,23 +261,36 @@ func (i *LemonInode) Rename(ctx context.Context, name string, newParent fs.Inode
 	if !ok {
 		// move directly
 		source.Rename(newName)
-		targetParent.Content.Directory.Content = []file.LemonDirectoryChild{*source}
+
+		if targetParent.Content.Path() == i.Content.Path() {
+			i.Content.WriteToFile()
+			return 0
+		}
+
+		targetParent.Content.Directory.Content = append(targetParent.Content.Directory.Content, *source)
 		i.Content.Directory.Content = newChildren
+
+		i.Content.WriteToFile()
+
 		return 0
 	}
 
 	if source.IsFile() {
-		if targetParent.Content.IsDirectory() {
-			return syscall.EISDIR
+		if existsTarget.IsDirectory() {
+			return syscall.EEXIST
 		}
 
 		// overwrite the file
 		existsTarget.File.Content = source.File.Content
+		i.Content.Directory.Content = newChildren
+
+		i.Content.WriteToFile()
+
 		return 0
 	}
 
 	if targetParent.Content.IsFile() {
-		return syscall.ENOTDIR
+		return syscall.EEXIST
 	}
 
 	if len(targetParent.Content.Directory.Content) != 0 {
@@ -278,8 +299,9 @@ func (i *LemonInode) Rename(ctx context.Context, name string, newParent fs.Inode
 
 	// move
 	source.Rename(newName)
-	targetParent.Content.Directory.Content = []file.LemonDirectoryChild{*source}
+	targetParent.Content.Directory.Content = append(targetParent.Content.Directory.Content, *source)
 	i.Content.Directory.Content = newChildren
 
+	i.Content.WriteToFile()
 	return 0
 }

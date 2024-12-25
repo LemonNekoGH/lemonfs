@@ -35,7 +35,7 @@ func main() {
 	}
 	jsonRoot.TargetFile = jsonFile
 	jsonRoot.ApplyParentAndTarget(nil)
-	if jsonRoot.Directory == nil {
+	if jsonRoot.IsFile() {
 		jsonRoot.Directory = &file.LemonDirectory{
 			Type:    "directory",
 			Content: []file.LemonDirectoryChild{},
@@ -46,9 +46,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
 
-	rootInode := &inode.LemonInode{
-		Content: jsonRoot,
-	}
+	rootInode := inode.NewLemonInode(jsonRoot, nil)
 
 	server, err := fs.Mount(mountPoint, rootInode, &fs.Options{}) // It will call OnAdd
 	if err != nil {

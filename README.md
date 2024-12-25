@@ -32,11 +32,11 @@ go run ./cmd/lemonfs/main.go
 ## TODO
 
 - [x] List files in a directory
-- [ ] File operations
+- [x] File operations
     - [x] Open
     - [x] Read
     - [x] Write
-    - [x] Rename
 - [ ] Directory operations
+- [x] Rename (move)
 - [ ] Symlink operations
 - [ ] Hardlink operations
