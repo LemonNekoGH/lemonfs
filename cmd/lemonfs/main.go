@@ -35,7 +35,9 @@ func main() {
 	}
 	jsonRoot.TargetFile = jsonFile
 	jsonRoot.ApplyParentAndTarget(nil)
-	if jsonRoot.IsFile() {
+	if jsonRoot.File == nil && jsonRoot.Directory == nil {
+		log.Println("jsonRoot is nil, create empty directory")
+
 		jsonRoot.Directory = &file.LemonDirectory{
 			Type:    "directory",
 			Content: []file.LemonDirectoryChild{},
