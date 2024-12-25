@@ -3,6 +3,7 @@ package inode_test
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -76,9 +77,9 @@ func TestLookup(t *testing.T) {
 }
 
 func TestRename(t *testing.T) {
-	r := require.New(t)
-
 	t.Run("rename file", func(t *testing.T) {
+		r := require.New(t)
+
 		// path: /b/a
 		fileA := &file.LemonFile{
 			Type: "file",
@@ -130,6 +131,8 @@ func TestRename(t *testing.T) {
 	})
 
 	t.Run("rename directory", func(t *testing.T) {
+		r := require.New(t)
+
 		dirA := &file.LemonDirectory{
 			Type:    "directory",
 			Name:    "a",
@@ -171,6 +174,8 @@ func TestRename(t *testing.T) {
 	})
 
 	t.Run("move cross directory", func(t *testing.T) {
+		r := require.New(t)
+
 		// path: /c/a
 		fileA := &file.LemonFile{
 			Type: "file",
@@ -249,6 +254,8 @@ func TestRename(t *testing.T) {
 	})
 
 	t.Run("rename file to existing file", func(t *testing.T) {
+		r := require.New(t)
+
 		// path: /c/a
 		fileA := &file.LemonFile{
 			Type:    "file",
@@ -313,6 +320,8 @@ func TestRename(t *testing.T) {
 	})
 
 	t.Run("not exists", func(t *testing.T) {
+		r := require.New(t)
+
 		root := inode.NewLemonInode(&file.LemonDirectoryChild{
 			Type: "directory",
 			Directory: &file.LemonDirectory{
@@ -337,6 +346,8 @@ func TestRename(t *testing.T) {
 	})
 
 	t.Run("source is directory but target is file", func(t *testing.T) {
+		r := require.New(t)
+
 		fileA := &file.LemonFile{
 			Type: "file",
 			Name: "a",
@@ -380,6 +391,8 @@ func TestRename(t *testing.T) {
 	})
 
 	t.Run("source is file but target is directory", func(t *testing.T) {
+		r := require.New(t)
+
 		fileA := &file.LemonFile{
 			Type: "file",
 			Name: "a",
@@ -420,5 +433,97 @@ func TestRename(t *testing.T) {
 
 		err = os.Rename(filepath.Join(tmpDir, "a"), filepath.Join(tmpDir, "b"))
 		r.True(os.IsExist(err))
+	})
+}
+
+func TestReaddir(t *testing.T) {
+	t.Run("is file", func(t *testing.T) {
+		r := require.New(t)
+
+		fileA := &file.LemonFile{
+			Type: "file",
+			Name: "a",
+		}
+
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{Type: "file", File: fileA},
+				},
+			},
+		}, nil)
+
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		_, err = os.ReadDir(filepath.Join(tmpDir, "a"))
+		r.Error(err)
+		r.ErrorIs(err, syscall.ENOTDIR)
+	})
+
+	t.Run("is directory", func(t *testing.T) {
+		r := require.New(t)
+
+		dir := &file.LemonDirectory{
+			Type: "directory",
+			Name: "a",
+			Content: []file.LemonDirectoryChild{
+				{
+					Type: "file",
+					File: &file.LemonFile{
+						Type: "file",
+						Name: "b",
+					},
+				},
+				{
+					Type: "directory",
+					Directory: &file.LemonDirectory{
+						Name: "c",
+						Type: "directory",
+					},
+				},
+			},
+		}
+
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{
+						Type:      "directory",
+						Directory: dir,
+					},
+				},
+			},
+		}, nil)
+
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		entries, err := os.ReadDir(filepath.Join(tmpDir, "a"))
+		r.NoError(err)
+		r.Equal(len(entries), 2)
+		r.Equal(entries[0].Name(), "b")
+		r.False(entries[0].IsDir())
+
+		r.Equal(entries[1].Name(), "c")
+		r.True(entries[1].IsDir())
 	})
 }

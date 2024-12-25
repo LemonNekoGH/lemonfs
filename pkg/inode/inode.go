@@ -93,19 +93,13 @@ func (i *LemonInode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) 
 	log.Println("Readdir", i.Content.Path())
 
 	if i.Content.IsFile() {
-		return nil, syscall.ENOENT
+		return nil, syscall.ENOTDIR
 	}
 
 	entries := []fuse.DirEntry{}
 	for _, child := range i.Content.Directory.Content {
-		if child.IsFile() {
-			log.Println("Child", child.Type, child.File.Name)
-			entries = append(entries, fuse.DirEntry{Name: child.File.Name, Mode: fuse.S_IFREG})
-		}
-		if child.IsDirectory() {
-			log.Println("Child", child.Type, child.Directory.Name)
-			entries = append(entries, fuse.DirEntry{Name: child.Directory.Name, Mode: fuse.S_IFDIR})
-		}
+		mode := lo.Ternary(child.IsFile(), fuse.S_IFREG, fuse.S_IFDIR)
+		entries = append(entries, fuse.DirEntry{Name: child.Name(), Mode: uint32(mode)})
 	}
 
 	return fs.NewListDirStream(entries), 0
@@ -124,8 +118,6 @@ func (i *LemonInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut
 	}
 
 	foundInode := NewLemonInode(&found, i.Content)
-
-	log.Println("found", found.Path(), found.IsDirectory())
 
 	mode := uint32(lo.Ternary(found.IsFile(), fuse.S_IFREG, fuse.S_IFDIR))
 
