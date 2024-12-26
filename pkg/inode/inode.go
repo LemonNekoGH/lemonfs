@@ -48,6 +48,31 @@ func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inod
 	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&newFile)
 }
 
+func (i *LemonInode) createDirectoryInode(ctx context.Context, name string) *fs.Inode {
+	now := uint64(time.Now().Unix())
+	newDir := file.LemonDirectoryChild{
+		Type: "directory",
+		Directory: &file.LemonDirectory{
+			Type:           "directory",
+			Name:           name,
+			Content:        []file.LemonDirectoryChild{},
+			LastAccessedAt: now,
+			LastModifiedAt: now,
+			CreatedAt:      now,
+		},
+
+		Parent:     i.Content,
+		TargetFile: i.Content.TargetFile,
+	}
+
+	i.Content.Directory.Content = append(i.Content.Directory.Content, newDir)
+	i.Content.WriteToFile()
+
+	lemonInode := NewLemonInode(&newDir, i.Content)
+
+	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFDIR})
+}
+
 func NewLemonInode(content *file.LemonDirectoryChild, parent *file.LemonDirectoryChild) *LemonInode {
 	lemonInode := &LemonInode{
 		Content: content,
@@ -67,6 +92,7 @@ var _ fs.NodeOpener = (*LemonInode)(nil)
 var _ fs.NodeCreater = (*LemonInode)(nil)
 var _ fs.NodeSetattrer = (*LemonInode)(nil)
 var _ fs.NodeRenamer = (*LemonInode)(nil)
+var _ fs.NodeMkdirer = (*LemonInode)(nil)
 
 func (i *LemonInode) OnAdd(ctx context.Context) {
 	log.Println("OnAdd", i.Content.Path())
@@ -296,4 +322,21 @@ func (i *LemonInode) Rename(ctx context.Context, name string, newParent fs.Inode
 
 	i.Content.WriteToFile()
 	return 0
+}
+
+func (i *LemonInode) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+	i.rwLock.Lock()
+	defer i.rwLock.Unlock()
+
+	log.Printf("Mkdir %s in %s", name, i.Content.Path())
+
+	if i.Content.IsFile() {
+		return nil, syscall.ENOTDIR
+	}
+
+	if _, ok := i.findChild(name); ok {
+		return nil, syscall.EEXIST
+	}
+
+	return i.createDirectoryInode(ctx, name), 0
 }

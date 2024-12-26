@@ -133,7 +133,7 @@ type LemonDirectory struct {
 	Type           string                `json:"type"`
 	Name           string                `json:"name"`
 	Content        []LemonDirectoryChild `json:"content"`
-	CreatedAt      int64                 `json:"created_at"`
-	LastAccessedAt int64                 `json:"last_accessed_at"`
-	LastModifiedAt int64                 `json:"last_modified_at"`
+	CreatedAt      uint64                `json:"created_at"`
+	LastAccessedAt uint64                `json:"last_accessed_at"`
+	LastModifiedAt uint64                `json:"last_modified_at"`
 }

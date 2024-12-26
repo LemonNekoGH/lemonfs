@@ -341,8 +341,7 @@ func TestRename(t *testing.T) {
 		defer server.Unmount()
 
 		err = os.Rename(filepath.Join(tmpDir, "a"), filepath.Join(tmpDir, "b"))
-		r.NoError(err)
-		r.Equal(os.IsNotExist(err), true)
+		r.True(os.IsNotExist(err))
 	})
 
 	t.Run("source is directory but target is file", func(t *testing.T) {
@@ -525,5 +524,107 @@ func TestReaddir(t *testing.T) {
 
 		r.Equal(entries[1].Name(), "c")
 		r.True(entries[1].IsDir())
+	})
+}
+
+func TestMkdir(t *testing.T) {
+	t.Run("is file", func(t *testing.T) {
+		r := require.New(t)
+
+		fileA := &file.LemonFile{
+			Type: "file",
+			Name: "a",
+		}
+
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{Type: "file", File: fileA},
+				},
+			},
+		}, nil)
+
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		err = os.Mkdir(filepath.Join(tmpDir, "a", "b"), 0755)
+		r.ErrorIs(err, syscall.ENOTDIR)
+	})
+
+	t.Run("exists", func(t *testing.T) {
+		r := require.New(t)
+
+		dirA := &file.LemonDirectory{
+			Type: "directory",
+			Name: "a",
+		}
+
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{Type: "directory", Directory: dirA},
+				},
+			},
+		}, nil)
+
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		err = os.Mkdir(filepath.Join(tmpDir, "a"), 0755)
+		r.ErrorIs(err, syscall.EEXIST)
+	})
+
+	t.Run("success", func(t *testing.T) {
+		r := require.New(t)
+
+		dirA := &file.LemonDirectory{
+			Type: "directory",
+			Name: "a",
+		}
+
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{Type: "directory", Directory: dirA},
+				},
+			},
+		}, nil)
+
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		err = os.Mkdir(filepath.Join(tmpDir, "a", "b"), 0755)
+		r.NoError(err)
+
+		dir, err := os.Stat(filepath.Join(tmpDir, "a", "b"))
+		r.NoError(err)
+		r.True(dir.IsDir())
 	})
 }

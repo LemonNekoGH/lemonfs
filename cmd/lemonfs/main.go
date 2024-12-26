@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
+	"github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/lemonnekogh/lemonfs/pkg/file"
 	"github.com/lemonnekogh/lemonfs/pkg/inode"
 )
@@ -50,7 +51,11 @@ func main() {
 
 	rootInode := inode.NewLemonInode(jsonRoot, nil)
 
-	server, err := fs.Mount(mountPoint, rootInode, &fs.Options{}) // It will call OnAdd
+	server, err := fs.Mount(mountPoint, rootInode, &fs.Options{
+		MountOptions: fuse.MountOptions{
+			Debug: true,
+		},
+	}) // It will call OnAdd
 	if err != nil {
 		log.Fatal(err)
 	}
