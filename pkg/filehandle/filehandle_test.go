@@ -13,36 +13,76 @@ import (
 )
 
 func TestWrite(t *testing.T) {
-	r := require.New(t)
+	t.Run("normal mode", func(t *testing.T) {
+		r := require.New(t)
 
-	fileA := &file.LemonFile{
-		Type: "file",
-		Name: "a",
-	}
+		fileA := &file.LemonFile{
+			Type: "file",
+			Name: "a",
+		}
 
-	root := inode.NewLemonInode(&file.LemonDirectoryChild{
-		Type: "directory",
-		Directory: &file.LemonDirectory{
-			Name: "root",
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
 			Type: "directory",
-			Content: []file.LemonDirectoryChild{
-				{Type: "file", File: fileA},
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{Type: "file", File: fileA},
+				},
 			},
-		},
-	}, nil)
+		}, nil)
 
-	tmpDir := t.TempDir()
-	server, err := fs.Mount(tmpDir, root, &fs.Options{
-		MountOptions: fuse.MountOptions{
-			Debug: true,
-		},
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		err = os.WriteFile(filepath.Join(tmpDir, "a"), []byte("hello"), 0644)
+		r.NoError(err)
+		r.Equal("hello", fileA.Content)
 	})
-	r.NoError(err)
-	defer server.Unmount()
 
-	err = os.WriteFile(filepath.Join(tmpDir, "a"), []byte("hello"), 0644)
-	r.NoError(err)
-	r.Equal(fileA.Content, "hello")
+	t.Run("append mode", func(t *testing.T) {
+		r := require.New(t)
+
+		fileA := &file.LemonFile{
+			Type:    "file",
+			Name:    "a",
+			Content: "hello",
+		}
+
+		root := inode.NewLemonInode(&file.LemonDirectoryChild{
+			Type: "directory",
+			Directory: &file.LemonDirectory{
+				Name: "root",
+				Type: "directory",
+				Content: []file.LemonDirectoryChild{
+					{Type: "file", File: fileA},
+				},
+			},
+		}, nil)
+
+		tmpDir := t.TempDir()
+		server, err := fs.Mount(tmpDir, root, &fs.Options{
+			MountOptions: fuse.MountOptions{
+				Debug: true,
+			},
+		})
+		r.NoError(err)
+		defer server.Unmount()
+
+		f, err := os.OpenFile(filepath.Join(tmpDir, "a"), os.O_APPEND|os.O_WRONLY, 0644)
+		r.NoError(err)
+		defer f.Close()
+
+		_, err = f.Write([]byte(" world"))
+		r.NoError(err)
+		r.Equal("hello world", fileA.Content)
+	})
 }
 
 func TestRead(t *testing.T) {
@@ -74,7 +114,5 @@ func TestRead(t *testing.T) {
 	r.NoError(err)
 	defer server.Unmount()
 
-	content, err := os.ReadFile(filepath.Join(tmpDir, "a"))
-	r.NoError(err)
-	r.Equal(string(content), "hello")
+	r.Equal("hello", fileA.Content)
 }

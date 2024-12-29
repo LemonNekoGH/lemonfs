@@ -63,17 +63,17 @@ func TestLookup(t *testing.T) {
 	// fileA
 	stat, err := os.Stat(filepath.Join(tmpDir, "b", "a"))
 	r.NoError(err)
-	r.Equal(stat.Mode().IsRegular(), true)
+	r.True(stat.Mode().IsRegular())
 
 	// dirB
 	stat, err = os.Stat(filepath.Join(tmpDir, "b"))
 	r.NoError(err)
-	r.Equal(stat.Mode().IsDir(), true)
+	r.True(stat.Mode().IsDir())
 
 	// not exists
 	_, err = os.Stat(filepath.Join(tmpDir, "c"))
 	r.Error(err)
-	r.Equal(os.IsNotExist(err), true)
+	r.True(os.IsNotExist(err))
 }
 
 func TestRename(t *testing.T) {
@@ -124,7 +124,7 @@ func TestRename(t *testing.T) {
 		// rename file
 		err = os.Rename(filepath.Join(tmpDir, "b", "a"), filepath.Join(tmpDir, "b", "c"))
 		r.NoError(err)
-		r.Equal(fileA.Name, "c")
+		r.Equal("c", fileA.Name)
 
 		_, err = os.Stat(filepath.Join(tmpDir, "b", "c"))
 		r.NoError(err)
@@ -164,7 +164,7 @@ func TestRename(t *testing.T) {
 
 		err = os.Rename(filepath.Join(tmpDir, "a"), filepath.Join(tmpDir, "b"))
 		r.NoError(err)
-		r.Equal(dirA.Name, "b")
+		r.Equal("b", dirA.Name)
 
 		_, err = os.Stat(filepath.Join(tmpDir, "a"))
 		r.True(os.IsNotExist(err), "should not exist")
@@ -241,7 +241,7 @@ func TestRename(t *testing.T) {
 
 		err = os.Rename(filepath.Join(tmpDir, "c", "a"), filepath.Join(tmpDir, "d", "a"))
 		r.NoError(err)
-		r.Equal(fileA.Name, "a")
+		r.Equal("a", fileA.Name)
 
 		_, err = os.Stat(filepath.Join(tmpDir, "c", "a"))
 		r.True(os.IsNotExist(err), "should not exist")
@@ -310,7 +310,7 @@ func TestRename(t *testing.T) {
 
 		err = os.Rename(filepath.Join(tmpDir, "c", "a"), filepath.Join(tmpDir, "c", "b"))
 		r.NoError(err)
-		r.Equal(fileB.Content, "hello")
+		r.Equal("hello", fileB.Content)
 
 		_, err = os.Stat(filepath.Join(tmpDir, "c", "a"))
 		r.True(os.IsNotExist(err), "should not exist")
@@ -518,11 +518,11 @@ func TestReaddir(t *testing.T) {
 
 		entries, err := os.ReadDir(filepath.Join(tmpDir, "a"))
 		r.NoError(err)
-		r.Equal(len(entries), 2)
-		r.Equal(entries[0].Name(), "b")
+		r.Equal(2, len(entries))
+		r.Equal("b", entries[0].Name())
 		r.False(entries[0].IsDir())
 
-		r.Equal(entries[1].Name(), "c")
+		r.Equal("c", entries[1].Name())
 		r.True(entries[1].IsDir())
 	})
 }
@@ -627,4 +627,40 @@ func TestMkdir(t *testing.T) {
 		r.NoError(err)
 		r.True(dir.IsDir())
 	})
+}
+
+func TestTruncate(t *testing.T) {
+	r := require.New(t)
+
+	fileA := &file.LemonFile{
+		Type:    "file",
+		Name:    "a",
+		Content: "hello world",
+	}
+
+	root := inode.NewLemonInode(&file.LemonDirectoryChild{
+		Type: "directory",
+		Directory: &file.LemonDirectory{
+			Name: "root",
+			Type: "directory",
+			Content: []file.LemonDirectoryChild{
+				{Type: "file", File: fileA},
+			},
+		},
+	}, nil)
+
+	tmpDir := t.TempDir()
+	server, err := fs.Mount(tmpDir, root, &fs.Options{
+		MountOptions: fuse.MountOptions{
+			Debug: true,
+		},
+	})
+	r.NoError(err)
+	defer server.Unmount()
+
+	f, err := os.OpenFile(filepath.Join(tmpDir, "a"), os.O_TRUNC, 0644)
+	r.NoError(err)
+	defer f.Close()
+
+	r.Equal("", fileA.Content)
 }

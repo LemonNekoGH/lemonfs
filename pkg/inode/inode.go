@@ -22,7 +22,7 @@ type LemonInode struct {
 	Content *file.LemonDirectoryChild
 }
 
-func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inode, fs.FileHandle) {
+func (i *LemonInode) createFileInode(ctx context.Context, name string, flags uint32) (*fs.Inode, fs.FileHandle) {
 	now := uint64(time.Now().Unix())
 
 	newFile := file.LemonDirectoryChild{
@@ -45,7 +45,7 @@ func (i *LemonInode) createFileInode(ctx context.Context, name string) (*fs.Inod
 
 	lemonInode := NewLemonInode(&newFile, i.Content)
 
-	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&newFile)
+	return i.NewInode(ctx, lemonInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&newFile, flags)
 }
 
 func (i *LemonInode) createDirectoryInode(ctx context.Context, name string) *fs.Inode {
@@ -178,17 +178,18 @@ func (i *LemonInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uin
 	i.rwLock.RLock()
 	defer i.rwLock.RUnlock()
 
-	log.Printf("Open %s, flags %d", i.Content.Path(), flags)
+	log.Printf("Open %s, flags %d, truncate: %t", i.Content.Path(), flags, flags&syscall.O_TRUNC == syscall.O_TRUNC)
 
 	if i.Content.IsDirectory() {
 		return i, 0, syscall.EISDIR
 	}
 
-	if flags&syscall.O_TRUNC != 0 {
+	if flags&syscall.O_TRUNC == syscall.O_TRUNC {
 		i.Content.File.Content = ""
+		i.Content.WriteToFile()
 	}
 
-	return filehandle.NewLemonFileHandle(i.Content), 0, 0
+	return filehandle.NewLemonFileHandle(i.Content, flags), 0, 0
 }
 
 func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
@@ -214,17 +215,17 @@ func (i *LemonInode) Create(ctx context.Context, name string, flags uint32, mode
 			return nil, nil, 0, syscall.EEXIST
 		}
 
-		if flags&syscall.O_CREAT != 0 {
+		if flags&syscall.O_CREAT == syscall.O_CREAT {
 			return nil, nil, 0, syscall.EEXIST
 		}
 
 		// create or open an existing file
 
 		foundInode := NewLemonInode(&file, i.Content)
-		return i.NewInode(ctx, foundInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&file), 0, 0
+		return i.NewInode(ctx, foundInode, fs.StableAttr{Mode: fuse.S_IFREG}), filehandle.NewLemonFileHandle(&file, flags), 0, 0
 	}
 
-	newFile, newFileHandle := i.createFileInode(ctx, name)
+	newFile, newFileHandle := i.createFileInode(ctx, name, flags)
 	return newFile, newFileHandle, 0, 0
 }
 

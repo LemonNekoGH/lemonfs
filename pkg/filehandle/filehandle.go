@@ -12,14 +12,16 @@ import (
 )
 
 type LemonFileHandle struct {
-	file *file.LemonDirectoryChild
+	file  *file.LemonDirectoryChild
+	flags uint32
 
 	rwLock sync.RWMutex
 }
 
-func NewLemonFileHandle(file *file.LemonDirectoryChild) *LemonFileHandle {
+func NewLemonFileHandle(file *file.LemonDirectoryChild, flags uint32) *LemonFileHandle {
 	return &LemonFileHandle{
-		file: file,
+		file:  file,
+		flags: flags,
 	}
 }
 
@@ -32,19 +34,20 @@ func (fh *LemonFileHandle) Write(ctx context.Context, data []byte, off int64) (u
 	fh.rwLock.Lock()
 	defer fh.rwLock.Unlock()
 
-	log.Printf("Write %s at %d, %d bytes", fh.file.Path(), off, len(data))
+	// append mode
+	if fh.flags&syscall.O_APPEND != 0 {
+		log.Printf("Write %s at %d, %d bytes, append mode", fh.file.Path(), off, len(data))
 
-	content := []byte(fh.file.File.Content)
-	// If the offset is greater than the current length, append the missing bytes
-	if off > int64(len(content)) {
-		content = append(content, make([]byte, off-int64(len(content)))...)
+		fh.file.File.Content += string(data)
+		fh.file.WriteToFile()
+
+		return uint32(len(data)), 0
 	}
 
-	// Should overwrite the bytes after the offset
-	content = append(content[:off], data...)
+	// normal mode
+	log.Printf("Write %s at %d, %d bytes, normal mode", fh.file.Path(), off, len(data))
 
-	fh.file.File.Content = string(content)
-
+	fh.file.File.Content = string(data)
 	fh.file.WriteToFile()
 
 	return uint32(len(data)), 0
